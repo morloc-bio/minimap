@@ -1,0 +1,61 @@
+--' The minimap test suite
+--'
+--' Simulated reads aligned in process and by the minimap2 2.30 command
+--' line, whose PAF records must match ours.
+module minimap.test (test)
+
+import root
+import root-py
+import bio
+import stream
+import minimap
+import unittest
+
+record Py => MinimapOpts = "dict"
+record Py => MinimapIndex = "dict"
+record Py => MinimapHit = "dict"
+
+source Py from "minimap-test.py"
+  ( "tmp_path" as tmpPath
+  , "write_inputs" as writeInputs
+  , "check_paf" as checkPaf
+  , "spliced_count" as splicedCount
+  , "fasta_lengths" as fastaLengths
+  )
+
+tmpPath :: Str -> <IO> Str
+writeInputs :: Int -> <IO> Str
+checkPaf :: Str -> Str -> Str -> Str -> Str -> <IO> Str
+splicedCount :: Str -> Int
+fastaLengths :: Str -> <IO> ([Str], [Int])
+
+testMinimap :: Results -> <IO> Results
+testMinimap s0 = do
+  d <- writeInputs 1
+  let g = d <> "/genome.fa"
+  reads <- collectSource (readFastq (d <> "/reads.fq"))
+  pairs <- collectSource (readFastqPairs (d <> "/r_1.fq") (d <> "/r_2.fq"))
+  sr <- loadMinimapIndex defaultMinimapOpts g
+  let srPaf = pafText sr reads (alignReads sr reads)
+  srMsg <- checkPaf "sr" g (d <> "/reads.fq") srPaf ""
+  let ph = alignPairs sr pairs
+  pairMsg <- checkPaf "sr" g (d <> "/r_1.fq") (pafTextPairs sr pairs ph) (d <> "/r_2.fq")
+  let spliceOpts = .(.preset = "splice:sr") defaultMinimapOpts
+  sp <- loadMinimapIndex spliceOpts g
+  let spPaf = pafText sp reads (alignReads sp reads)
+  spMsg <- checkPaf "splice:sr" g (d <> "/reads.fq") spPaf ""
+  mmi <- tmpPath "genome-sr.mmi"
+  built <- buildMinimapIndex defaultMinimapOpts g mmi
+  fromMmi <- loadMinimapIndex defaultMinimapOpts built
+  lens <- fastaLengths g
+  ( testEqual "sr alignments match minimap2 -c -x sr" srMsg ""
+  . testEqual "paired alignments match minimap2 -c -x sr with two files" pairMsg ""
+  . testEqual "splice:sr alignments match minimap2 -c -x splice:sr" spMsg ""
+  . testTrue "splice:sr aligns reads across the intron" (splicedCount spPaf >= 50)
+  . testEqual "sequence names and lengths" (.refNames sr, .refLens sr) lens
+  . testEqual "a saved index loads with the same sequences" (.refNames fromMmi, .refLens fromMmi) lens
+  . testEqual "a saved index aligns as the FASTA does" (pafText fromMmi reads (alignReads fromMmi reads)) srPaf
+  ) s0
+
+test :: <IO> Bool
+test = suiteE (groupE "minimap" testMinimap)

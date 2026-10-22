@@ -1,0 +1,7 @@
+name: minimap-test
+version: 0.1.0
+synopsis: Tests of minimap
+description: The minimap suite; the minimap2 command line is the oracle.
+license: MIT
+tool-deps:
+  minimap2: { version: "==2.30", channel: "bioconda" }

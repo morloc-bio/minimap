@@ -1,0 +1,11 @@
+name: minimap
+version: 0.1.0
+homepage: null
+synopsis: minimap2 alignment in process
+description: Builds and loads minimap2 indices and aligns reads and read pairs, spliced or not, through minimap2's C library.
+category: bioinformatics
+license: MIT
+author: "Zebulun Arendsee"
+maintainer: "z@morloc.io"
+github: null
+bug-reports: null

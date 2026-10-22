@@ -1,0 +1,129 @@
+--' minimap2 in process: index, load, and align reads to a reference
+--'
+--' Index building and loading, and alignment of reads and read pairs to a
+--' reference (a genome, transcripts, contigs) through minimap2's C library
+--' (2.30), not its command line. Spliced presets ("splice", "splice:sr",
+--' "splice:hq") align RNA reads to a genome across introns.
+--'
+--' Implementations: minimap-rust.
+module minimap
+  ( MinimapOpts
+  , MinimapIndex
+  , MinimapHit
+  , defaultMinimapOpts
+  , buildMinimapIndex
+  , loadMinimapIndex
+  , alignReads
+  , alignPairs
+  , pafText
+  , pafTextPairs
+  )
+
+import root
+import bio
+
+--' How to index and align
+record MinimapOpts where
+  --' minimap2's preset (`-x`)
+  --'
+  --' One of "sr", "splice", "splice:sr", "splice:hq", "map-ont", "map-hifi",
+  --' "map-pb", "lr:hq", "asm5", "asm10", "asm20", "cdna".
+  preset :: Str
+  --' Threads for index building; 0 uses every core
+  threads :: Int
+
+--' Short-read preset, index built on every core
+defaultMinimapOpts :: MinimapOpts
+defaultMinimapOpts = {preset = "sr", threads = 0}
+
+--' Index a FASTA file and save the index; returns its path
+--'
+--' The index is minimap2's .mmi, built for the preset.
+buildMinimapIndex ::
+  MinimapOpts ->
+  --' FASTA file of the reference sequences
+  --' @check.path r
+  Str ->
+  --' Output index file (.mmi)
+  --' @check.path w
+  Str ->
+  <IO> Str
+
+--' A loaded minimap2 index
+--'
+--' An index is loaded once per process and held for the life of the
+--' process.
+record MinimapIndex where
+  --' File the index came from: a .mmi, or a FASTA indexed on load
+  path :: Str
+  --' Preset it aligns with
+  preset :: Str
+  --' Sequence names, in the order alignments number them
+  refNames :: [Str]
+  --' Sequence lengths, in the order of `refNames`
+  refLens :: [Int]
+
+--' Load a minimap2 index, or index a FASTA file on load
+loadMinimapIndex ::
+  MinimapOpts ->
+  --' Index file (.mmi) or FASTA file
+  --' @check.path r
+  Str ->
+  <IO> MinimapIndex
+
+--' One alignment, as a PAF line describes it
+--'
+--' Coordinates are 0-based, half-open, on the forward strand of the target;
+--' query coordinates are on the read as given.
+record MinimapHit where
+  --' Target, as an index into `refNames`
+  target :: Int
+  --' First aligned query base
+  qStart :: Int
+  --' Query base after the alignment
+  qEnd :: Int
+  --' First aligned target base
+  tStart :: Int
+  --' Target base after the alignment
+  tEnd :: Int
+  --' Whether the query aligns to the reverse strand
+  reverse :: Bool
+  --' Residue matches (PAF column 10)
+  matches :: Int
+  --' Alignment block length (PAF column 11)
+  blockLen :: Int
+  --' Mapping quality
+  mapq :: Int
+  --' Whether the alignment is primary
+  primary :: Bool
+  --' Whether the alignment is supplementary
+  supplementary :: Bool
+  --' Transcript strand of a spliced alignment (the `ts` tag)
+  --'
+  --' 1, -1, or 0 when unknown or not spliced.
+  transStrand :: Int
+  --' Edit distance (`NM`); 0 without base-level alignment
+  nm :: Int
+  --' CIGAR; "" without base-level alignment
+  cigar :: Str
+
+--' Align a batch of reads
+--'
+--' Each read's alignments, primary first.
+alignReads :: MinimapIndex -> [FastqEntry] -> [[MinimapHit]]
+
+--' Align a batch of read pairs as fragments
+--'
+--' Each mate's alignments.
+alignPairs :: MinimapIndex -> [ReadPair] -> [([MinimapHit], [MinimapHit])]
+
+--' PAF lines for reads and their alignments
+--'
+--' With `tp`, `ts`, `NM` and `cg` tags, as `minimap2 -c` writes them.
+pafText :: MinimapIndex -> [FastqEntry] -> [[MinimapHit]] -> Str
+
+--' PAF lines for read pairs and their alignments
+--'
+--' Each mate is named `<name>/1` and `<name>/2` as minimap2 names them,
+--' mate 1's alignments first.
+pafTextPairs :: MinimapIndex -> [ReadPair] -> [([MinimapHit], [MinimapHit])] -> Str
